@@ -1,0 +1,382 @@
+#include <bits/stdc++.h>
+#include "MatMul.h"
+
+using namespace std;
+
+const float MAX_VALUE = 3.4e35f;
+
+//step0
+void add(int a, int b, float c,
+         int *h, int *e, int *ne, float *w, int &idx)
+{
+    e[idx] = b, w[idx] = c, ne[idx] = h[a], h[a] = idx++;
+}
+
+void GraphInit(int N,
+                int &n,   
+                int *h,
+               int *e,
+               int *ne,
+               float *w)
+{
+    int idx = 0;
+    memset(h, -1, sizeof(int)*N);
+    ifstream input;
+    input.open("mytest.txt");
+    int a, b;
+    float c;
+    string line;
+    while (input >> line)
+    {
+        int pre = 0, cnt = 0;
+        for (int i = 0; i < line.size(); i++)
+        {
+            if (cnt == 0 && line[i] == ',')
+            {
+                a = stoi(line.substr(pre, i - pre));
+                cnt++;
+                pre = i + 1;
+                continue;
+            }
+            if (cnt == 1 && line[i] == ',')
+            {
+                b = stoi(line.substr(pre, i - pre));
+                cnt++;
+                pre = i + 1;
+                continue;
+            }
+            if (cnt == 2)
+            {
+                c = stof(line.substr(pre));
+            }
+        }
+        n=max(n,a);
+        n=max(n,b);
+        add(a, b, c, h, e, ne, w, idx);
+        add(b, a, c, h, e, ne, w, idx);
+    }
+}
+
+void SubIdInit(int *id, unordered_map<int, vector<int>> &BlockVer)
+{
+    ifstream input;
+    input.open("subtest.txt");
+    int a, b;
+    string line;
+    while (input >> line)
+    {
+        int pre = 0, cnt = 0;
+        for (int i = 0; i < line.size(); i++)
+        {
+            if (cnt == 0 && line[i] == ',')
+            {
+                a = stoi(line.substr(pre, i - pre));
+                cnt++;
+                pre = i + 1;
+            }
+            if (cnt == 1 && line[i] == ',')
+            {
+                b = stoi(line.substr(pre));
+                break;
+            }
+        }
+        id[a] = b;
+        BlockVer[b].push_back(a);
+    }
+}
+
+void findBoundry(int K,
+                 unordered_map<int, vector<int>> &BlockVer,
+                 int *h, int *e, int *ne, float *w, int *id,
+                 unordered_map<int, vector<int>> &BlockBoundary,
+                 unordered_map<int, int> &isBoundry)
+{
+    for (int subId = 0; subId <= K; subId++)
+    {
+        for (int i = 0; i < BlockVer[subId].size(); i++)
+        {
+            int row = BlockVer[subId][i];
+            bool isFind = false; //点row是否为边界点
+            for (int j = h[row]; ~j; j = ne[j])
+            {
+                int col = e[j];
+                if (id[row] != id[col])
+                    isFind = true;
+            }
+            if (isFind)
+            {
+                BlockBoundary[subId].push_back(row);
+                isBoundry[row] = 1;
+            }
+            else
+                isBoundry[row] = 0;
+        }
+    }
+}
+
+struct dense_node
+{
+    int v;
+    int GraphId;
+    int isBound;
+};
+
+static bool cmp(const dense_node &a, const dense_node &b)
+{
+    if (a.GraphId == b.GraphId)
+        return a.isBound > b.isBound;
+    else
+        return a.GraphId < b.GraphId;
+}
+
+void sort_and_encode(int K, int n, int *id,
+                     unordered_map<int, int> &isBoundry, int *gSorted_id,
+                     int *C_BlockVer_num, int *C_BlockVer_sum,
+                     int *C_BlockBoundry_num, int *C_BlockBoundry_sum,
+                     unordered_map<int, vector<int>> &BlockVer,
+                     unordered_map<int, vector<int>> &BlockBoundary,
+                     unordered_map<int, int> &st2ed,int *g_index)
+{
+    vector<dense_node> ver;
+    for (int i = 1; i <= n; i++)
+    {
+        dense_node cur;
+        cur.v = i, cur.GraphId = id[i], cur.isBound = isBoundry[i];
+        ver.push_back(cur);
+    }
+    vector<dense_node> verSorted(ver);
+    sort(verSorted.begin(), verSorted.end(), cmp);
+
+    //建立映射关系
+    for (int i = 0; i < ver.size(); i++)
+    {
+        int before = ver[i].v, after = verSorted[i].v;
+        st2ed[before] = after;
+        g_index[after]=before;
+        // ed2st[after]=before;
+    }
+
+    //vector2struct部分
+    for (int i = 1; i <= n; i++)
+    {
+        gSorted_id[i] = verSorted[i - 1].v;
+    }
+    int cnt_ver=1;
+    for (int i = 1; i <= K; i++)
+    {
+        C_BlockVer_sum[i] = cnt_ver;
+        C_BlockVer_num[i] = BlockVer[i].size();
+        cnt_ver+=C_BlockVer_num[i];
+        
+        C_BlockBoundry_sum[i] = C_BlockVer_sum[i];
+        C_BlockBoundry_num[i] = BlockBoundary[i].size();
+    }
+}
+
+//step1
+void subGraphBuild(float *arc, int n,
+                   int *h, int *e, int *ne, float *w,
+                   int *gSorted_id, int tot, int start,
+                   int *g_index)
+{
+    for (int i = 0; i < tot; i++)
+    {
+        int ver = gSorted_id[i + start];
+        for (int j = h[ver]; ~j; j = ne[j])
+        {
+            int neighour = g_index[e[j]];
+            arc[i * n + neighour-1] = w[j];
+        }
+    }
+}
+
+void subMatBuild(float *subMat, float *arc,
+                 int start, int row_num, int n)
+{
+    for (int i = 0; i < row_num; i++)
+    {
+        for (int j = 0; j < row_num; j++)
+        {
+            subMat[i * row_num + j] = arc[i * n + j + start - 1];
+        }
+    }
+
+    for(int i=0;i<row_num;i++){
+        subMat[i*row_num+i]=0;
+    }
+}
+
+void subMat2arc(float *subMat, float *arc,
+                 int start, int row_num, int n)
+{
+    for (int i = 0; i < row_num; i++)
+    {
+        for (int j = 0; j < row_num; j++)
+        {
+            arc[i * n + j + start - 1] = subMat[i * row_num + j];
+        }
+    }
+}
+
+//step2
+void bdyMatBuild(float *bdyMat, float *arc,
+                 int K, int bdy_row_num, int bdy_col_num,
+                 int n, int C_BlockBoundry_num[], int C_BlockBoundry_sum[])
+{
+    int cnt = 0;
+    for (int i = 0; i < bdy_row_num; i++)
+    {
+        for (int j = 1; j <= K; j++)
+        {
+            int st = C_BlockBoundry_sum[j];
+            int len = C_BlockBoundry_num[j];
+            for (int index = st; index <= st + len - 1; index++)
+            {
+                bdyMat[cnt++] = arc[i * n + index-1];
+            }
+        }
+    }
+}
+
+void fill2arc(float *bdyMat, float *arc,
+              int K, int bdy_row_num, int n, int C_BlockBoundry_num[], int C_BlockBoundry_sum[])
+{
+    int cnt = 0;
+    for (int i = 0; i < bdy_row_num; i++)
+    {
+        for (int j = 1; j <= K; j++)
+        {
+            int st = C_BlockBoundry_sum[j];
+            int len = C_BlockBoundry_num[j];
+            for (int index = st; index <= st + len - 1; index++)
+            {
+                arc[i * n + index-1] = bdyMat[cnt++];
+            }
+        }
+    }
+}
+
+void handle_diffgraph(int idx, int idy, int n,
+                      int *C_BlockVer_num, int *C_BlockVer_sum,
+                      int *C_BlockBoundry_num, int *C_BlockBoundry_sum,
+                      float *subMat, float *arc,
+                      float *All_subMat, int *subMat_index)
+{
+    int idx_num = C_BlockVer_num[idx];
+    int idx_bdy_num = C_BlockBoundry_num[idx];
+    int idy_bdy_num = C_BlockBoundry_num[idy];
+    int idy_num = C_BlockVer_num[idy];
+
+    float *mat1 = (float *)malloc(idx_num * idx_bdy_num * sizeof(float));
+    float *mat2 = (float *)malloc(idx_bdy_num * idy_bdy_num * sizeof(float));
+    float *mat3 = (float *)malloc(idy_bdy_num * idy_num * sizeof(float));
+    float *res = (float *)malloc(idx_num * idy_num * sizeof(float));
+    float *tmp = (float *)malloc(idx_num * idy_bdy_num * sizeof(float));
+
+    fill_n(tmp,idx_num * idy_bdy_num,MAX_VALUE);
+    fill_n(res,idx_num * idy_num,MAX_VALUE);
+
+    //fill mat1
+    for (int i = 0; i < idx_num; i++)
+    {
+        for (int j = 0; j < idx_bdy_num; j++)
+        {
+            mat1[i * idx_bdy_num + j] = subMat[i * idx_num + j];
+        }
+    }
+
+    //fill mat2
+    int idy_index = C_BlockBoundry_sum[idy];
+    for (int i = 0; i < idx_bdy_num; i++)
+    {
+        for (int j = 0; j < idy_bdy_num; j++)
+        {
+            mat2[i * idy_bdy_num + j] = arc[i * n + idy_index + j-1];
+        }
+    }
+
+    //fill mat3
+    int All_subMat_index = subMat_index[idy];
+    for (int i = 0; i < idy_bdy_num; i++)
+    {
+        for (int j = 0; j < idy_num; j++)
+        {
+            mat3[i * idy_num + j] = All_subMat[All_subMat_index + i * idy_num + j];
+        }
+    }
+
+    //debug
+    // if(idx==1 && idy==2){
+    //     cout<<"mat1"<<endl;
+    //     for (int i = 0; i < idx_num; i++)
+    //     {
+    //         for (int j = 0; j < idx_bdy_num; j++)
+    //         {
+    //             cout<<mat1[i * idx_bdy_num + j]<<" ";
+    //         }
+    //         cout<<endl;
+    //     }
+    //     cout<<"mat2"<<endl;
+    //     for (int i = 0; i < idx_bdy_num; i++)
+    //     {
+    //         for (int j = 0; j < idy_bdy_num; j++)
+    //         {
+    //             cout<<mat2[i * idy_bdy_num + j]<<" ";
+    //         }
+    //         cout<<endl;
+    //     }
+    //     cout<<"mat3"<<endl;
+    //     for (int i = 0; i < idy_bdy_num; i++)
+    //     {
+    //         for (int j = 0; j < idy_num; j++)
+    //         {
+    //             cout<<mat3[i * idy_num + j]<<" ";
+    //         }
+    //         cout<<endl;
+    //     }
+    // }
+
+
+    gemm_CPU(mat1, mat2, tmp,idx_num,idx_bdy_num,idx_bdy_num,idy_bdy_num);
+    gemm_CPU(tmp, mat3, res,idx_num,idy_bdy_num,idy_bdy_num,idy_num);
+
+    //res fill back to arc
+    for (int i = 0; i < idx_num; i++)
+    {
+        for (int j = 0; j < idy_num; j++)
+        {
+            arc[i * n + idy_index + j-1] = res[i * idy_num + j];
+        }
+    }
+
+    free(mat1);
+    free(mat2);
+    free(mat3);
+    free(res);
+    free(tmp);
+}
+
+void res2file(float *all_arc, int n,
+              unordered_map<int, int> &st2ed)
+{
+    float *g = (float *)malloc(n * n * sizeof(float));
+    for (int i = 0; i < n; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            int x = st2ed[i + 1] - 1;
+            int y = st2ed[j + 1] - 1;
+            g[x * n + y] = all_arc[i * n + j];
+        }
+    }
+
+    ofstream output;
+    output.open("myresult.txt");
+    output << "|V| = " << n << ", |E| = " << n * n << endl;
+    for (int i = 0; i < n * n; i++)
+    {
+        if (i % n == 0)output << "\n";
+        if (g[i] < MAX_VALUE) output << g[i] << "\t";
+        else output << "oo"<< "\t";
+    }
+}
