@@ -1,0 +1,454 @@
+#include <bits/stdc++.h>
+#include <mpi.h>
+#include "dense_MPI.h"
+#include "floyd.h"
+
+using namespace std;
+
+const int N = 1000, M = 1000, K = 2;
+
+struct GraphMessage
+{
+    int n;
+    int h[N], e[M], ne[M];
+    float w[M];
+    int C_id[N];
+    int g_index[N];
+    int gSorted_id[N];             //代替了blockVer
+    int C_BlockVer_num[K + 1];     //C_BlockVer_num[K]表示第K个子图含有多少个节点
+    int C_BlockVer_sum[K + 1];     //C_BlockVer_sum[K]表示第K个子图的第一个节点的索引位置
+    int C_BlockBoundry_num[K + 1]; //C_BlockVer_num[K]表示第K个子图含有多少个边界点
+    int C_BlockBoundry_sum[K + 1]; //C_BlockVer_sum[K]表示第K个子图的第一个边界点的索引位置
+};
+
+void build_type(MPI_Datatype* graphtype)
+{
+    int blocklength[12];
+    MPI_Datatype oldtypes[12];
+    MPI_Aint offsets[12];
+
+    blocklength[0]=1;
+    blocklength[1]=N;
+    blocklength[2]=M;
+    blocklength[3]=M;
+    blocklength[4]=M;
+    blocklength[5]=N;
+    blocklength[6]=N;
+    blocklength[7]=N;
+    blocklength[8]=K+1;
+    blocklength[9]=K+1;
+    blocklength[10]=K+1;
+    blocklength[11]=K+1;
+
+    MPI_Aint index=0;
+    for(int i=0;i<12;i++){
+        offsets[i]=index;
+        if(i==4)index+=blocklength[i]*sizeof(float);
+        else index+=blocklength[i]*sizeof(int);
+    }
+
+    for(int i=0;i<12;i++){
+        if(i==4)oldtypes[i]=MPI_FLOAT;
+        else oldtypes[i]=MPI_INT;
+    }
+
+    MPI_Type_struct(12,blocklength,offsets,oldtypes,graphtype);
+    MPI_Type_commit(graphtype);
+}
+
+template<typename T>
+void debug_array(T *a,int num){
+    for(int i=0;i<=num;i++){
+        cout<<a[i]<<" ";
+    }
+    cout<<endl;
+}
+
+void debug_struct(GraphMessage a){
+    for(int i=0;i<=a.n;i++){
+        cout<<a.gSorted_id[i]<<" ";
+    }
+    cout<<endl;
+    for(int i=1;i<=K;i++){
+        cout<<a.C_BlockVer_num[i]<<" ";
+    }
+    cout<<endl;
+    for(int i=1;i<=K;i++){
+        cout<<a.C_BlockVer_sum[i]<<" ";
+    }
+    cout<<endl;
+    for(int i=1;i<=K;i++){
+        cout<<a.C_BlockBoundry_num[i]<<" ";
+    }
+    cout<<endl;
+    for(int i=1;i<=K;i++){
+        cout<<a.C_BlockBoundry_sum[i]<<" ";
+    }
+    cout<<endl;
+}
+
+int
+main(int argc, char **argv)
+{
+    //初始化MPI环境
+    MPI_Init(&argc, &argv);
+
+    //获取进程数
+    //进程数必须是子图数+1  即K+1
+    int world_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+    //获取进程号
+    int myProcess;
+    MPI_Comm_rank(MPI_COMM_WORLD, &myProcess);
+
+    //获取进程的名字
+    char processor_name[MPI_MAX_PROCESSOR_NAME];
+    int name_len;
+    MPI_Get_processor_name(processor_name, &name_len);
+    MPI_Status status;
+
+    GraphMessage local_message;
+    int n;                                         //实际的结点数
+    unordered_map<int, vector<int>> BlockVer;      //BlockVer[K]用来存储K号子图里面中的点标号
+    unordered_map<int, vector<int>> BlockBoundary; //BlockBoundary[K]用来存储K号子图里面中的边界点标号
+    unordered_map<int, int> isBoundry;             //记录该点是否为边界点
+    unordered_map<int, int> st2ed;                 //将g的节点序号映射成gSorted的节点序号
+    unordered_map<int, int> ed2st;
+
+    //MPI struct 
+    MPI_Datatype graphtype;
+    build_type(&graphtype);
+    
+    //step0
+    cout<<"step0 start"<<endl;
+    if (myProcess == 0)
+    {
+        //图节点序号和子图序号都是从1开始
+        //K为图划分的个数 需要人为设定
+        GraphInit(N,local_message.n,local_message.h, local_message.e, local_message.ne, local_message.w);
+        SubIdInit(local_message.C_id, BlockVer);
+
+        findBoundry(K, BlockVer,
+                    local_message.h, local_message.e, local_message.ne, local_message.w,
+                    local_message.C_id,BlockBoundary, isBoundry);
+        sort_and_encode(K, local_message.n, local_message.C_id,
+                        isBoundry, local_message.gSorted_id,
+                        local_message.C_BlockVer_num, local_message.C_BlockVer_sum,
+                        local_message.C_BlockBoundry_num, local_message.C_BlockBoundry_sum,
+                        BlockVer, BlockBoundary, st2ed,local_message.g_index);
+        // debug_struct(local_message);
+        for (int i = 1; i <=K; i++)
+        {
+            MPI_Send(&local_message,1,graphtype,i,0,MPI_COMM_WORLD);
+        }
+    }
+    else
+    {
+        MPI_Recv(&local_message,1,graphtype,0,0,MPI_COMM_WORLD,&status);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // GraphInit(N,local_message.n,local_message.h, local_message.e, local_message.ne, local_message.w);
+    // SubIdInit(local_message.C_id, BlockVer);
+
+    // findBoundry(K, BlockVer,
+    //             local_message.h, local_message.e, local_message.ne, local_message.w,
+    //             local_message.C_id,BlockBoundary, isBoundry);
+
+    // sort_and_encode(K, local_message.n, local_message.C_id,
+    //                 isBoundry, local_message.gSorted_id,
+    //                 local_message.C_BlockVer_num, local_message.C_BlockVer_sum,
+    //                 local_message.C_BlockBoundry_num, local_message.C_BlockBoundry_sum,
+    //                 BlockVer, BlockBoundary, st2ed);
+
+    // cout<<"the n is: "<<local_message.n<<endl;
+    // cout<<"the isBoundry is:"<<endl;
+    // for(int i=1;i<=local_message.n;i++){
+    //     cout<<isBoundry[i]<<" ";
+    // }
+    // cout<<endl;
+    // cout<<"the ver message"<<endl;
+    // for(auto it=BlockVer.begin();it!=BlockVer.end();it++){
+    //     auto t=it->second;
+    //     cout<<it->first<<endl;
+    //     for(auto x:t){
+    //         cout<<x<<" ";
+    //     }
+    //     cout<<endl;
+    // }
+    // cout<<"the boundry message"<<endl;
+    // for(auto it=BlockBoundary.begin();it!=BlockBoundary.end();it++){
+    //     auto t=it->second;
+    //     cout<<it->first<<endl;
+    //     for(auto x:t){
+    //         cout<<x<<" ";
+    //     }
+    //     cout<<endl;
+    // }
+    // debug_array(local_message.C_id,local_message.n);
+    // debug_struct(local_message);
+    
+    n=local_message.n;
+    float *arc;    //整个子图
+    float *subMat; //子图上的主元位置
+    float *bdyMat; //子图上的边界矩阵
+    float *All_bdyMat;
+
+    int row_num = 0;
+    int num = 0;
+    int bdy_col_num = 0;
+
+    //if(myProcess==1)debug_struct(local_message);
+
+    //step1
+    // cout<<"step1 start"<<endl;
+    if (myProcess != 0)
+    {
+        //TODO 利用接收到的struct还原矩阵
+        row_num = local_message.C_BlockVer_num[myProcess];
+        num = row_num * local_message.n;
+        arc = (float *)malloc(num * sizeof(float));
+        fill_n(arc, num, MAX_VALUE);
+
+        subGraphBuild(arc, local_message.n,
+                      local_message.h, local_message.e, local_message.ne, local_message.w,
+                      local_message.gSorted_id, local_message.C_BlockVer_num[myProcess],
+                      local_message.C_BlockVer_sum[myProcess],local_message.g_index);
+
+        //对子图对应位置做floyd算法
+        subMat = (float *)malloc(row_num * row_num * sizeof(float));
+        fill_n(subMat, row_num*row_num, MAX_VALUE);
+
+        subMatBuild(subMat, arc,
+                    local_message.C_BlockVer_sum[myProcess], row_num, local_message.n);
+
+        floyd_CPU(row_num, subMat);
+
+        subMat2arc(subMat,arc,
+                    local_message.C_BlockVer_sum[myProcess], row_num, local_message.n);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // if(myProcess==2){
+    //     cout<<"arc is:"<<endl;
+    //     //debug_array(arc,n*row_num);
+    //     for(int i=0;i<row_num;i++){
+    //         for(int j=0;j<n;j++){
+    //             if(arc[i*n+j]!=MAX_VALUE)cout<<arc[i*n+j]<<" ";
+    //             else cout<<"* ";
+    //         }
+    //         cout<<endl;
+    //     }
+    //     cout<<"subMat is:"<<endl;
+    //     //debug_array(subMat,row_num*row_num);
+    //     for(int i=0;i<row_num;i++){
+    //         for(int j=0;j<row_num;j++){
+    //             if(subMat[i*row_num+j]!=MAX_VALUE)cout<<subMat[i*row_num+j]<<" ";
+    //             else cout<<"* ";
+    //         }
+    //         cout<<endl;
+    //     }
+    // }
+
+    
+    //step2
+    // cout<<"step2 start"<<endl;
+    int bdy_row_num = 0;
+    int bdy_len = 0;
+    int All_bdy_num = 0;
+    int bdyMat_index[K+1];
+    int bdyMat_len[K+1];
+
+    if(myProcess!=0){
+        //建立边界节点矩阵
+        for (int i = 1; i <= K; i++)
+        {
+            bdy_col_num += local_message.C_BlockBoundry_num[i];
+        }
+        bdy_row_num = local_message.C_BlockBoundry_num[myProcess];
+        bdy_len = bdy_row_num * bdy_col_num;
+        bdyMat = (float *)malloc(bdy_len * sizeof(float));
+        fill_n(bdyMat, bdy_len, MAX_VALUE);
+
+        bdyMatBuild(bdyMat, arc, K, bdy_row_num, bdy_col_num,local_message.n,
+                    local_message.C_BlockBoundry_num, local_message.C_BlockBoundry_sum);
+    }
+    else{
+        for (int i = 1; i <= K; i++)
+        {
+            All_bdy_num += local_message.C_BlockBoundry_num[i];
+        }
+        int bdyMat_index_tmp=0;
+        for (int i = 1; i <= K; i++)
+        {
+            bdyMat_index[i] = bdyMat_index_tmp;
+            bdyMat_index_tmp += All_bdy_num * local_message.C_BlockBoundry_num[i];
+            bdyMat_len[i] = All_bdy_num * local_message.C_BlockBoundry_num[i];
+        }
+
+        All_bdyMat = (float *)malloc(All_bdy_num * All_bdy_num * sizeof(float));
+        fill_n(All_bdyMat, All_bdy_num * All_bdy_num, MAX_VALUE);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if (myProcess != 0)
+    {
+        MPI_Send(bdyMat, bdy_len, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
+    }
+    else
+    {
+        for (int i = 1; i <= K; i++)
+        {
+            MPI_Recv(All_bdyMat+bdyMat_index[i], bdyMat_len[i], MPI_FLOAT, i, 0, MPI_COMM_WORLD,&status);
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if(myProcess==0){
+        floyd_CPU(All_bdy_num,All_bdyMat);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    //将生成的边界矩阵传回给所有节点
+
+    
+    if (myProcess == 0)
+    {
+        for (int i = 1; i <= K; i++)
+        {
+            MPI_Send(All_bdyMat+bdyMat_index[i],bdyMat_len[i], MPI_FLOAT, i, 0, MPI_COMM_WORLD);
+        }
+    }
+    else
+    {
+        MPI_Recv(bdyMat, bdy_len, MPI_FLOAT, 0, 0, MPI_COMM_WORLD,&status);
+        //将数据填回arc中
+        fill2arc(bdyMat, arc, K, bdy_row_num, local_message.n,
+                 local_message.C_BlockBoundry_num, local_message.C_BlockBoundry_sum);
+    }
+    
+    //step3
+    // cout<<"step3 start"<<endl;
+    float *All_subMat;
+    int All_subMat_num = 0;
+    int subMat_index[K+1];
+    int subMat_len[K+1];
+    //每个节点都存有所有子图的主矩阵信息
+    for (int i = 1; i <= K; i++)
+    {
+        subMat_index[i] = All_subMat_num;
+        int t = local_message.C_BlockVer_num[i];
+        All_subMat_num += t * t;
+        subMat_len[i] = t * t;
+    }
+    All_subMat = (float *)malloc(All_subMat_num * sizeof(float));
+    fill_n(All_subMat, All_subMat_num, MAX_VALUE);
+
+    if (myProcess != 0)
+    {
+        int subMat_num = local_message.C_BlockVer_num[myProcess];
+        int subMat_len = subMat_num*subMat_num;
+        MPI_Send(subMat, subMat_len, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
+    }
+    else
+    {
+        for (int i = 1; i <= K; i++)
+        {
+            MPI_Recv(All_subMat+subMat_index[i], subMat_len[i], MPI_FLOAT, i, 0, MPI_COMM_WORLD,&status);
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if (myProcess == 0)
+    {
+        for (int i = 1; i <= K; i++)
+        {
+            MPI_Send(All_subMat, All_subMat_num, MPI_FLOAT, i, 0, MPI_COMM_WORLD);
+        }
+    }
+    else
+    {
+        MPI_Recv(All_subMat, All_subMat_num, MPI_FLOAT, 0, 0, MPI_COMM_WORLD,&status);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // if(myProcess==1){
+    //     cout<<All_subMat_num<<endl;
+    //     for(int i=0;i<All_subMat_num;i++)
+    //         cout<<All_subMat[i]<<" ";
+    //     cout<<endl;
+    // }
+    
+    float *all_arc;
+    int arc_index[K];
+    if (myProcess != 0)
+    {
+        for (int i = 1; i <= K; i++)
+        {
+            if (i == myProcess)
+                continue;
+            handle_diffgraph(myProcess, i,n,
+                local_message.C_BlockVer_num,local_message.C_BlockVer_sum,
+                local_message.C_BlockBoundry_num,local_message.C_BlockBoundry_sum,
+                subMat,arc,All_subMat,subMat_index);
+
+            // cout<<"the process is "<<myProcess<<" the i is: "<<i<<endl;
+            // debug_array(arc,row_num*n);
+        }
+    }
+    else
+    {
+        all_arc = (float *)malloc(n * n * sizeof(float));
+        fill_n(all_arc,n*n,MAX_VALUE);
+
+        int t = 0;
+        for (int i = 1; i <= K; i++)
+        {
+            arc_index[i] = t;
+            t += local_message.C_BlockVer_num[i] * n;
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if (myProcess != 0)
+    {
+        MPI_Send(arc, n * row_num, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
+    }
+    else
+    {
+        for (int i = 1; i <= K; i++)
+        {
+            int len = local_message.C_BlockVer_num[i] * n;
+            MPI_Recv(all_arc + arc_index[i], len, MPI_FLOAT, i, 0, MPI_COMM_WORLD,&status);
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if (myProcess == 0)
+    {
+        // for(int i=0;i<n;i++){
+        //     for(int j=0;j<n;j++){
+        //         if(all_arc[i*n+j]!=MAX_VALUE)cout<<all_arc[i*n+j]<<" ";
+        //         else cout<<"* ";
+        //     }
+        //     cout<<endl;
+        // }
+        res2file(all_arc, n, st2ed);
+    }
+
+    free(arc);
+    free(subMat);
+    free(bdyMat);
+    free(All_bdyMat);
+    free(All_subMat);
+    free(all_arc);
+    
+    MPI_Finalize();
+}
