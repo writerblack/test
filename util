@@ -380,3 +380,254 @@ void res2file(float *all_arc, int n,
         else output << "oo"<< "\t";
     }
 }
+
+
+
+
+
+
+
+
+test_mac4x4_asm:
+	.amd_kernel_code_t
+		is_ptr64 = 1
+		enable_sgpr_kernarg_segment_ptr = 1
+		kernarg_segment_byte_size = 24
+		workitem_vgpr_count = 72 // vgprs
+		wavefront_sgpr_count = 26 // sgprs
+		compute_pgm_rsrc1_vgprs = 17 // floor((72-1)/4)
+		compute_pgm_rsrc1_sgprs = 3 // floor((26-1)/8)		
+		compute_pgm_rsrc2_tidig_comp_cnt = 0 // 1D wg
+		compute_pgm_rsrc2_tgid_x_en = 1 // wg.x
+		compute_pgm_rsrc2_tgid_y_en = 1 // wg.y
+		compute_pgm_rsrc2_tgid_z_en = 1 // wg.z
+		workgroup_group_segment_byte_size = 1024 // lds bytes
+		compute_pgm_rsrc2_user_sgpr = 2
+		kernarg_segment_alignment = 4
+		group_segment_alignment = 4
+		private_segment_alignment = 4
+	.end_amd_kernel_code_t
+	
+	/********************/
+	/********************/
+	.set vgprValueC,    0
+	.set vgprValueB_X0,	32
+	.set vgprValueB_X1,	40
+	.set vgprValueA_X0,	48
+	.set vgprValueA_X1,	56
+	.set vgprLocalReadA, 64
+	.set vgprLocalReadB, 65
+	.set vgprLocalWriteA,	66
+	.set vgprLocalWriteB,	67
+	.set vgprGlobalOffsetAB, 68
+	.set vgprSerial,    69
+	.set vgprOffsetC, 70
+
+
+	/********************/
+	/********************/
+	.set sgprKernArgsAddress, 0
+	.set sgprworkgroup0,	  2
+	.set sgprworkgroup1,	  3
+	.set sgprworkgroup2,	  4
+	.set sgprSrcAddressA,     6
+	.set sgprSrcAddressB,	  8
+	.set sgprSrcAddressC,	  10
+	.set sgprSrcA,			  12
+	.set sgprSrcB, 			  16
+	.set sgprSrcC,			  20
+	
+	
+.macro MAC_4X4_X0
+	// D.d = S0.d * S1.d + S2.d
+	v_fma_f64	v[vgprValueC:vgprValueC+1], 	v[vgprValueA_X0+0:vgprValueA_X0+1],   v[vgprValueB_X0+0:vgprValueB_X0+1], v[vgprValueC:vgprValueC+1]
+	s_setprio 1 // Raise priority while processing macs 
+	v_fma_f64	v[vgprValueC+2:vgprValueC+3],	v[vgprValueA_X0+0:vgprValueA_X0+1],   v[vgprValueB_X0+2:vgprValueB_X0+3], v[vgprValueC+2:vgprValueC+3]	
+	v_fma_f64	v[vgprValueC+4:vgprValueC+5], 	v[vgprValueA_X0+0:vgprValueA_X0+1],   v[vgprValueB_X0+4:vgprValueB_X0+5], v[vgprValueC+4:vgprValueC+5]
+	v_fma_f64	v[vgprValueC+6:vgprValueC+7], 	v[vgprValueA_X0+0:vgprValueA_X0+1],   v[vgprValueB_X0+6:vgprValueB_X0+7], v[vgprValueC+6:vgprValueC+7]	
+	v_fma_f64	v[vgprValueC+8:vgprValueC+9], 	v[vgprValueA_X0+2:vgprValueA_X0+3], v[vgprValueB_X0+0:vgprValueB_X0+1], v[vgprValueC+8:vgprValueC+9]	
+	v_fma_f64	v[vgprValueC+10:vgprValueC+11], v[vgprValueA_X0+2:vgprValueA_X0+3], v[vgprValueB_X0+2:vgprValueB_X0+3], v[vgprValueC+10:vgprValueC+11]	
+	v_fma_f64	v[vgprValueC+12:vgprValueC+13], v[vgprValueA_X0+2:vgprValueA_X0+3], v[vgprValueB_X0+4:vgprValueB_X0+5], v[vgprValueC+12:vgprValueC+13]
+	v_fma_f64	v[vgprValueC+14:vgprValueC+15], v[vgprValueA_X0+2:vgprValueA_X0+3], v[vgprValueB_X0+6:vgprValueB_X0+7], v[vgprValueC+14:vgprValueC+15]	
+	v_fma_f64	v[vgprValueC+16:vgprValueC+17], v[vgprValueA_X0+4:vgprValueA_X0+5], v[vgprValueB_X0+0:vgprValueB_X0+1], v[vgprValueC+16:vgprValueC+17]	
+	v_fma_f64	v[vgprValueC+18:vgprValueC+19], v[vgprValueA_X0+4:vgprValueA_X0+5], v[vgprValueB_X0+2:vgprValueB_X0+3], v[vgprValueC+18:vgprValueC+19]	
+	v_fma_f64	v[vgprValueC+20:vgprValueC+21], v[vgprValueA_X0+4:vgprValueA_X0+5], v[vgprValueB_X0+4:vgprValueB_X0+5], v[vgprValueC+20:vgprValueC+21]	
+	v_fma_f64	v[vgprValueC+22:vgprValueC+23], v[vgprValueA_X0+4:vgprValueA_X0+5], v[vgprValueB_X0+6:vgprValueB_X0+7], v[vgprValueC+22:vgprValueC+23]	
+	v_fma_f64	v[vgprValueC+24:vgprValueC+25], v[vgprValueA_X0+6:vgprValueA_X0+7], v[vgprValueB_X0+0:vgprValueB_X0+1], v[vgprValueC+24:vgprValueC+25]	
+	v_fma_f64	v[vgprValueC+26:vgprValueC+27], v[vgprValueA_X0+6:vgprValueA_X0+7], v[vgprValueB_X0+2:vgprValueB_X0+3], v[vgprValueC+26:vgprValueC+27]	
+	v_fma_f64	v[vgprValueC+28:vgprValueC+29], v[vgprValueA_X0+6:vgprValueA_X0+7], v[vgprValueB_X0+4:vgprValueB_X0+5], v[vgprValueC+28:vgprValueC+29]	
+	v_fma_f64	v[vgprValueC+30:vgprValueC+31], v[vgprValueA_X0+6:vgprValueA_X0+7], v[vgprValueB_X0+6:vgprValueB_X0+7], v[vgprValueC+30:vgprValueC+31]
+	s_setprio 0 // Reset priority after macs 
+.endm
+
+.macro MAC_4X4_X1
+	v_fma_f64	v[vgprValueC:vgprValueC+1], 	v[vgprValueA_X1+0:vgprValueA_X1+1],   v[vgprValueB_X1+0:vgprValueB_X1+1], v[vgprValueC:vgprValueC+1]
+	s_setprio 1 // Raise priority while processing macs 
+	v_fma_f64	v[vgprValueC+2:vgprValueC+3],	v[vgprValueA_X1+0:vgprValueA_X1+1],   v[vgprValueB_X1+2:vgprValueB_X1+3], v[vgprValueC+2:vgprValueC+3]	
+	v_fma_f64	v[vgprValueC+4:vgprValueC+5], 	v[vgprValueA_X1+0:vgprValueA_X1+1],   v[vgprValueB_X1+4:vgprValueB_X1+5], v[vgprValueC+4:vgprValueC+5]
+	v_fma_f64	v[vgprValueC+6:vgprValueC+7], 	v[vgprValueA_X1+0:vgprValueA_X1+1],   v[vgprValueB_X1+6:vgprValueB_X1+7], v[vgprValueC+6:vgprValueC+7]	
+	v_fma_f64	v[vgprValueC+8:vgprValueC+9], 	v[vgprValueA_X1+2:vgprValueA_X1+3], v[vgprValueB_X1+0:vgprValueB_X1+1], v[vgprValueC+8:vgprValueC+9]	
+	v_fma_f64	v[vgprValueC+10:vgprValueC+11], v[vgprValueA_X1+2:vgprValueA_X1+3], v[vgprValueB_X1+2:vgprValueB_X1+3], v[vgprValueC+10:vgprValueC+11]	
+	v_fma_f64	v[vgprValueC+12:vgprValueC+13], v[vgprValueA_X1+2:vgprValueA_X1+3], v[vgprValueB_X1+4:vgprValueB_X1+5], v[vgprValueC+12:vgprValueC+13]
+	v_fma_f64	v[vgprValueC+14:vgprValueC+15], v[vgprValueA_X1+2:vgprValueA_X1+3], v[vgprValueB_X1+6:vgprValueB_X1+7], v[vgprValueC+14:vgprValueC+15]	
+	v_fma_f64	v[vgprValueC+16:vgprValueC+17], v[vgprValueA_X1+4:vgprValueA_X1+5], v[vgprValueB_X1+0:vgprValueB_X1+1], v[vgprValueC+16:vgprValueC+17]	
+	v_fma_f64	v[vgprValueC+18:vgprValueC+19], v[vgprValueA_X1+4:vgprValueA_X1+5], v[vgprValueB_X1+2:vgprValueB_X1+3], v[vgprValueC+18:vgprValueC+19]	
+	v_fma_f64	v[vgprValueC+20:vgprValueC+21], v[vgprValueA_X1+4:vgprValueA_X1+5], v[vgprValueB_X1+4:vgprValueB_X1+5], v[vgprValueC+20:vgprValueC+21]	
+	v_fma_f64	v[vgprValueC+22:vgprValueC+23], v[vgprValueA_X1+4:vgprValueA_X1+5], v[vgprValueB_X1+6:vgprValueB_X1+7], v[vgprValueC+22:vgprValueC+23]	
+	v_fma_f64	v[vgprValueC+24:vgprValueC+25], v[vgprValueA_X1+6:vgprValueA_X1+7], v[vgprValueB_X1+0:vgprValueB_X1+1], v[vgprValueC+24:vgprValueC+25]	
+	v_fma_f64	v[vgprValueC+26:vgprValueC+27], v[vgprValueA_X1+6:vgprValueA_X1+7], v[vgprValueB_X1+2:vgprValueB_X1+3], v[vgprValueC+26:vgprValueC+27]	
+	v_fma_f64	v[vgprValueC+28:vgprValueC+29], v[vgprValueA_X1+6:vgprValueA_X1+7], v[vgprValueB_X1+4:vgprValueB_X1+5], v[vgprValueC+28:vgprValueC+29]	
+	v_fma_f64	v[vgprValueC+30:vgprValueC+31], v[vgprValueA_X1+6:vgprValueA_X1+7], v[vgprValueB_X1+6:vgprValueB_X1+7], v[vgprValueC+30:vgprValueC+31]
+	s_setprio 0 // Reset priority after macs 
+.endm
+
+	// D.u = S0.u
+	s_mov_b32	m0, 1024
+	
+	//Read two Dwords from read-only constant memory through the constant cache
+	//把传入的参数移到相应寄存器中
+	s_load_dwordx2	s[sgprSrcAddressA:sgprSrcAddressA+1], s[sgprKernArgsAddress:sgprKernArgsAddress+1], 0x00
+	s_load_dwordx2 	s[sgprSrcAddressB:sgprSrcAddressB+1], s[sgprKernArgsAddress:sgprKernArgsAddress+1], 0x08
+	s_load_dwordx2 	s[sgprSrcAddressC:sgprSrcAddressC+1], s[sgprKernArgsAddress:sgprKernArgsAddress+1], 0x10
+	
+	//同步
+	s_waitcnt		lgkmcnt(0)	
+	
+	// D.u = S0.u
+	v_mov_b32	v[vgprSerial], v0
+	
+	//D.u = S1.u << S0.u[4:0].
+	v_lshlrev_b32	v[vgprGlobalOffsetAB], 5, v[vgprSerial]
+	v_mov_b32		v[vgprLocalWriteA], v[vgprGlobalOffsetAB]
+	// 两数相加
+	v_add_co_u32	v[vgprLocalWriteB], vcc, 512, v[vgprLocalWriteA]
+	
+	v_lshrrev_b32	v[vgprValueA_X0], 2, v[vgprSerial]
+	//与操作
+	v_and_b32		v[vgprValueB_X0], v[vgprSerial], 3
+	
+	v_lshlrev_b32	v[vgprLocalReadA], 5, v[vgprValueB_X0]
+	v_lshlrev_b32	v[vgprLocalReadB], 5, v[vgprValueA_X0]
+	v_add_co_u32	v[vgprLocalReadB], vcc, 512, v[vgprLocalReadB]
+	
+	v_lshlrev_b32	v[vgprOffsetC], 4, v[vgprValueB_X0]
+	v_add_lshl_u32	v[vgprOffsetC], v[vgprOffsetC], v[vgprValueA_X0], 5
+	
+	s_mov_b32		s[sgprSrcA+0], s[sgprSrcAddressA]
+	s_mov_b32		s[sgprSrcA+1], s[sgprSrcAddressA+1]
+	s_mov_b32		s[sgprSrcA+2], 512
+	s_mov_b32		s[sgprSrcA+3], 0x0020000
+	
+	s_mov_b32		s[sgprSrcB+0], s[sgprSrcAddressB]
+	s_mov_b32		s[sgprSrcB+1], s[sgprSrcAddressB+1]
+	s_mov_b32		s[sgprSrcB+2], 512
+	s_mov_b32		s[sgprSrcB+3], 0x0020000
+	
+	s_mov_b32		s[sgprSrcC+0], s[sgprSrcAddressC]
+	s_mov_b32		s[sgprSrcC+1], s[sgprSrcAddressC+1]
+	s_mov_b32		s[sgprSrcC+2], 2048
+	s_mov_b32		s[sgprSrcC+3], 0x0020000
+
+	
+	//init valucC=0
+	v_mov_b32	v[vgprValueC+0], 0
+	v_mov_b32	v[vgprValueC+1], 0
+	v_mov_b32	v[vgprValueC+2], 0
+	v_mov_b32	v[vgprValueC+3], 0
+	v_mov_b32	v[vgprValueC+4], 0
+	v_mov_b32	v[vgprValueC+5], 0
+	v_mov_b32	v[vgprValueC+6], 0
+	v_mov_b32	v[vgprValueC+7], 0
+	v_mov_b32	v[vgprValueC+8], 0
+	v_mov_b32	v[vgprValueC+9], 0
+	v_mov_b32	v[vgprValueC+10], 0
+	v_mov_b32	v[vgprValueC+11], 0
+	v_mov_b32	v[vgprValueC+12], 0
+	v_mov_b32	v[vgprValueC+13], 0
+	v_mov_b32	v[vgprValueC+14], 0
+	v_mov_b32	v[vgprValueC+15], 0
+	v_mov_b32	v[vgprValueC+16], 0
+	v_mov_b32	v[vgprValueC+17], 0
+	v_mov_b32	v[vgprValueC+18], 0
+	v_mov_b32	v[vgprValueC+19], 0
+	v_mov_b32	v[vgprValueC+21], 0
+	v_mov_b32	v[vgprValueC+22], 0
+	v_mov_b32	v[vgprValueC+23], 0
+	v_mov_b32	v[vgprValueC+24], 0
+	v_mov_b32	v[vgprValueC+25], 0
+	v_mov_b32	v[vgprValueC+26], 0
+	v_mov_b32	v[vgprValueC+27], 0
+	v_mov_b32	v[vgprValueC+28], 0
+	v_mov_b32	v[vgprValueC+29], 0
+	v_mov_b32	v[vgprValueC+30], 0
+	v_mov_b32	v[vgprValueC+31], 0
+	
+	//load data to local
+	
+	//Read four Dwords from read-only memory describe by a buffer a constant (V#) through the constant cache (kcache).
+	//从global mem里取，到寄存器
+	buffer_load_dwordx4	v[vgprValueA_X0+0:vgprValueA_X0+3], v[vgprGlobalOffsetAB], s[sgprSrcA+0:sgprSrcA+3], 0, offen, offset:0x00
+	buffer_load_dwordx4	v[vgprValueA_X0+4:vgprValueA_X0+7], v[vgprGlobalOffsetAB], s[sgprSrcA+0:sgprSrcA+3], 0, offen, offset:0x10
+	buffer_load_dwordx4	v[vgprValueB_X0+0:vgprValueB_X0+3], v[vgprGlobalOffsetAB], s[sgprSrcB+0:sgprSrcB+3], 0, offen, offset:0x00
+	buffer_load_dwordx4	v[vgprValueB_X0+4:vgprValueB_X0+7], v[vgprGlobalOffsetAB], s[sgprSrcB+0:sgprSrcB+3], 0, offen, offset:0x10
+	s_waitcnt			vmcnt(0)
+	//从寄存器到 shared mem
+	ds_write_b128		v[vgprLocalWriteA], v[vgprValueA_X0+0:vgprValueA_X0+3], offset:0x00
+	ds_write_b128		v[vgprLocalWriteA], v[vgprValueA_X0+4:vgprValueA_X0+7], offset:0x10
+	ds_write_b128		v[vgprLocalWriteB], v[vgprValueB_X0+0:vgprValueB_X0+3], offset:0x00
+	ds_write_b128		v[vgprLocalWriteB], v[vgprValueB_X0+4:vgprValueB_X0+7], offset:0x10
+	s_waitcnt			lgkmcnt(0)
+	s_barrier
+	
+	//prefetch load
+	//从shared mem读进寄存器中
+	ds_read_b128		v[vgprValueA_X0+0:vgprValueA_X0+3], v[vgprLocalReadA], offset:0x00
+	ds_read_b128		v[vgprValueA_X0+4:vgprValueA_X0+7], v[vgprLocalReadA], offset:0x10
+	ds_read_b128		v[vgprValueB_X0+0:vgprValueB_X0+3], v[vgprLocalReadB], offset:0x00
+	ds_read_b128		v[vgprValueB_X0+4:vgprValueB_X0+7], v[vgprLocalReadB], offset:0x10
+	
+	
+	ds_read_b128		v[vgprValueA_X1+0:vgprValueA_X1+3], v[vgprLocalReadA], offset:0x80
+	ds_read_b128		v[vgprValueA_X1+4:vgprValueA_X1+7], v[vgprLocalReadA], offset:0x90
+	ds_read_b128		v[vgprValueB_X1+0:vgprValueB_X1+3], v[vgprLocalReadB], offset:0x80
+	ds_read_b128		v[vgprValueB_X1+4:vgprValueB_X1+7], v[vgprLocalReadB], offset:0x90	
+	s_waitcnt			lgkmcnt(4)
+	//计算
+	MAC_4X4_X0
+	
+	ds_read_b128		v[vgprValueA_X0+0:vgprValueA_X0+3], v[vgprLocalReadA], offset:0x100
+	ds_read_b128		v[vgprValueA_X0+4:vgprValueA_X0+7], v[vgprLocalReadA], offset:0x110
+	ds_read_b128		v[vgprValueB_X0+0:vgprValueB_X0+3], v[vgprLocalReadB], offset:0x100
+	ds_read_b128		v[vgprValueB_X0+4:vgprValueB_X0+7], v[vgprLocalReadB], offset:0x110
+	s_waitcnt			lgkmcnt(4)
+	MAC_4X4_X1	
+	
+	ds_read_b128		v[vgprValueA_X1+0:vgprValueA_X1+3], v[vgprLocalReadA], offset:0x180
+	ds_read_b128		v[vgprValueA_X1+4:vgprValueA_X1+7], v[vgprLocalReadA], offset:0x190
+	ds_read_b128		v[vgprValueB_X1+0:vgprValueB_X1+3], v[vgprLocalReadB], offset:0x180
+	ds_read_b128		v[vgprValueB_X1+4:vgprValueB_X1+7], v[vgprLocalReadB], offset:0x190	
+	s_waitcnt			lgkmcnt(4)
+	MAC_4X4_X0
+	
+	s_waitcnt			lgkmcnt(0)
+	MAC_4X4_X1
+	
+	s_barrier
+	
+	//load data C 16*16
+	//写回到 global mem
+	//一个线程
+	buffer_store_dwordx4	v[vgprValueC+0:vgprValueC+3], v[vgprOffsetC], s[sgprSrcC+0:sgprSrcC+3], 0, offen, offset:0x00
+	buffer_store_dwordx4	v[vgprValueC+4:vgprValueC+7], v[vgprOffsetC], s[sgprSrcC+0:sgprSrcC+3], 0, offen, offset:0x10
+
+	buffer_store_dwordx4	v[vgprValueC+8:vgprValueC+11], v[vgprOffsetC], s[sgprSrcC+0:sgprSrcC+3], 0, offen, offset:0x80
+	buffer_store_dwordx4	v[vgprValueC+12:vgprValueC+15], v[vgprOffsetC], s[sgprSrcC+0:sgprSrcC+3], 0, offen, offset:0x90
+
+	buffer_store_dwordx4	v[vgprValueC+16:vgprValueC+19], v[vgprOffsetC], s[sgprSrcC+0:sgprSrcC+3], 0, offen, offset:0x100
+	buffer_store_dwordx4	v[vgprValueC+20:vgprValueC+23], v[vgprOffsetC], s[sgprSrcC+0:sgprSrcC+3], 0, offen, offset:0x110
+	
+	buffer_store_dwordx4	v[vgprValueC+24:vgprValueC+27], v[vgprOffsetC], s[sgprSrcC+0:sgprSrcC+3], 0, offen, offset:0x180
+	buffer_store_dwordx4	v[vgprValueC+28:vgprValueC+31], v[vgprOffsetC], s[sgprSrcC+0:sgprSrcC+3], 0, offen, offset:0x190
+	
+	s_endpgm
+	
